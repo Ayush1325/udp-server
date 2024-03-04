@@ -6,13 +6,14 @@
 
 #include <zephyr/logging/log.h>
 #include <zephyr/net/socket.h>
+#include <zephyr/timing/timing.h>
 
 #define PORT 4242
 
 LOG_MODULE_REGISTER(udp_server, LOG_LEVEL_DBG);
 
 int server_init(const struct sockaddr_in6 *addr6) {
-  int sock = zsock_socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+  int sock = zsock_socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
 
   if (sock < 0) {
     LOG_ERR("socket failed: %d", -errno);
@@ -25,6 +26,12 @@ int server_init(const struct sockaddr_in6 *addr6) {
     return -1;
   }
 
+  if (zsock_listen(sock, 5) < 0) {
+    LOG_ERR("listen failed: %d", -errno);
+    zsock_close(sock);
+    return -1;
+  }
+
   return sock;
 }
 
@@ -32,24 +39,39 @@ int main(void) {
   const struct sockaddr_in6 addr6 = {.sin6_family = AF_INET6,
                                      .sin6_port = htons(PORT),
                                      .sin6_addr = in6addr_any};
-  uint8_t buf[100] = {0};
-  int n, sock, count = 0;
+  int server_sock, conn_sock, ret, buf = 0;
 
-  sock = server_init(&addr6);
-  if (sock < 0) {
-    return sock;
+  server_sock = server_init(&addr6);
+  if (server_sock < 0) {
+    return server_sock;
   }
 
-  LOG_INF("UDP server started");
+  LOG_DBG("Waiting for connection");
+
+  conn_sock = zsock_accept(server_sock, NULL, NULL);
+
+  if (conn_sock < 0) {
+    LOG_ERR("accept failed: %d", -errno);
+    zsock_close(server_sock);
+    return -1;
+  }
+
+  LOG_INF("TCP server started");
 
   while (true) {
-    n = zsock_recvfrom(sock, buf, sizeof(buf), 0, NULL, 0);
-    if (n < 0) {
-      LOG_ERR("recvfrom failed: %d", -errno);
-      break;
+    ret = zsock_recv(conn_sock, &buf, sizeof(buf), 0);
+    if (ret < 0) {
+      LOG_ERR("recv failed: %d", -errno);
+      return -1;
     }
-    count++;
-    LOG_DBG("Received %d bytes, Msg count: %d", n, count);
+
+    LOG_INF("Got %d", buf);
+
+    zsock_send(conn_sock, &buf, sizeof(buf), 0);
+    if (ret < 0) {
+      LOG_ERR("send failed: %d", -errno);
+      return -1;
+    }
   }
 
   return 0;
