@@ -65,8 +65,6 @@ int main(void) {
       return -1;
     }
 
-    LOG_INF("Got %d", buf);
-
     zsock_send(conn_sock, &buf, sizeof(buf), 0);
     if (ret < 0) {
       LOG_ERR("send failed: %d", -errno);
